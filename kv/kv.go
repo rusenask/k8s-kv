@@ -15,6 +15,15 @@ var (
 	ErrNotFound = errors.New("not found")
 )
 
+// KVDB generic kv package interface
+type KVDB interface {
+	Put(key string, value []byte) error
+	Get(key string) (value []byte, err error)
+	Delete(key string) error
+	List(prefix string) (data map[string][]byte, err error)
+	Teardown() error
+}
+
 // KV provides access to key/value store operations such as Put, Get, Delete, List.
 // Entry in ConfigMap is created based on bucket name and total size is limited to 1MB per bucket.
 // Operations are protected by an internal mutex so it's safe to use in a single node application.

@@ -1,4 +1,4 @@
-# Kubernetes backed KV
+# Kubernetes backed KV [![GoDoc](https://godoc.org/github.com/rusenask/k8s-kv/kv?status.svg)]
 
 Use Kubernetes config maps as key/value store! 
 When to use k8s-kv:

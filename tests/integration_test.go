@@ -141,3 +141,58 @@ func TestList(t *testing.T) {
 	}
 
 }
+
+func TestListPrefix(t *testing.T) {
+	impl := getImplementer(t)
+	kv, err := kv.New(impl, "test", "testlistprefix")
+	if err != nil {
+		t.Fatalf("failed to create kv: %s", err)
+	}
+	defer kv.Teardown()
+
+	err = kv.Put("aaa", []byte("aaa"))
+	if err != nil {
+		t.Errorf("failed to put key, error: %s", err)
+	}
+	err = kv.Put("aaaaa", []byte("aaa"))
+	if err != nil {
+		t.Errorf("failed to put key, error: %s", err)
+	}
+	err = kv.Put("aaaaaaa", []byte("aaa"))
+	if err != nil {
+		t.Errorf("failed to put key, error: %s", err)
+	}
+
+	err = kv.Put("bbb", []byte("bbb"))
+	if err != nil {
+		t.Errorf("failed to put key, error: %s", err)
+	}
+	err = kv.Put("bbbbb", []byte("bbb"))
+	if err != nil {
+		t.Errorf("failed to put key, error: %s", err)
+	}
+	err = kv.Put("bbbbbbb", []byte("bbb"))
+	if err != nil {
+		t.Errorf("failed to put key, error: %s", err)
+	}
+
+	items, err := kv.List("aaa")
+	if err != nil {
+		t.Fatalf("failed to list items, error: %s", err)
+	}
+
+	if len(items) != 3 {
+		t.Errorf("expected %d items, got: %d", 3, len(items))
+	}
+
+	if string(items["aaa"]) != "aaa" {
+		t.Errorf("unexpected value on 'aaa': %s", items["aaa"])
+	}
+	if string(items["aaaaa"]) != "aaa" {
+		t.Errorf("unexpected value on 'aaaaa': %s", items["aaaaa"])
+	}
+	if string(items["aaaaaaa"]) != "aaa" {
+		t.Errorf("unexpected value on 'aaaaaaa': %s", items["aaaaaaa"])
+	}
+
+}

@@ -25,8 +25,13 @@ Teardown() error
 
 ## Caveats
 
-Don't be silly, you can't put a lot of stuff there, when creating a new `KV` max size limit is 1MB because it's the limit
+* Don't be silly, you can't put a lot of stuff there, when creating a new `KV` max size limit is 1MB because it's the limit
 of Etcd value size. Feel free to create as much instances as you want though with different bucket names. 
+* Since k8s-kv is relying on config maps - we have to comply with their rules:
+```
+ a valid config key must consist of alphanumeric characters, '-', '_' or '.' (e.g. 'key.name',  or 'KEY_NAME',  or 'key-name', regex used for validation is '[-._a-zA-Z0-9]+')
+ ```
+
 
 
 ## Example

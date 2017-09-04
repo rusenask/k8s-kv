@@ -42,6 +42,30 @@ func TestPut(t *testing.T) {
 		t.Errorf("failed to put: %s", err)
 	}
 }
+
+func TestPutDirectoryKeys(t *testing.T) {
+	impl := getImplementer(t)
+	kv, err := kv.New(impl, "test", "testputdirectorykeys")
+	if err != nil {
+		t.Fatalf("failed to create kv: %s", err)
+	}
+	defer kv.Teardown()
+
+	err = kv.Put("/somedir/key-here", []byte("val"))
+	if err != nil {
+		t.Errorf("failed to put: %s", err)
+	}
+
+	val, err := kv.Get("/somedir/key-here")
+	if err != nil {
+		t.Errorf("failed to get key: %s", err)
+	}
+
+	if string(val) != "val" {
+		t.Errorf("unexpected return: %s", string(val))
+	}
+}
+
 func TestGet(t *testing.T) {
 
 	impl := getImplementer(t)

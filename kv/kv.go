@@ -1,7 +1,12 @@
 package kv
 
 import (
+	"bytes"
+	"compress/gzip"
+	"encoding/base64"
+	"encoding/gob"
 	"errors"
+	"io/ioutil"
 	"strings"
 	"sync"
 
@@ -10,10 +15,20 @@ import (
 	"k8s.io/client-go/pkg/api/v1"
 )
 
+func init() {
+	gob.Register(&internalMap{})
+}
+
+type internalMap struct {
+	Data map[string][]byte
+}
+
 // errors
 var (
 	ErrNotFound = errors.New("not found")
 )
+
+var b64 = base64.StdEncoding
 
 // KVDB generic kv package interface
 type KVDB interface {
@@ -32,6 +47,7 @@ type KV struct {
 	bucket      string
 	implementer ConfigMapInterface
 	mu          *sync.RWMutex
+	serializer  Serializer
 }
 
 // ConfigMapInterface implements a subset of Kubernetes original ConfigMapInterface to provide
@@ -52,6 +68,7 @@ func New(implementer ConfigMapInterface, app, bucket string) (*KV, error) {
 		app:         app,
 		bucket:      bucket,
 		mu:          &sync.RWMutex{},
+		serializer:  DefaultSerializer(),
 	}
 
 	_, err := kv.getMap()
@@ -86,6 +103,55 @@ func (k *KV) getMap() (*v1.ConfigMap, error) {
 	return cfgMap, nil
 }
 
+func encodeInternalMap(serializer Serializer, data map[string][]byte) (string, error) {
+	var im internalMap
+	im.Data = data
+	bts, err := serializer.Encode(&im)
+	if err != nil {
+		return "", err
+	}
+
+	var buf bytes.Buffer
+	w, err := gzip.NewWriterLevel(&buf, gzip.BestCompression)
+	if err != nil {
+		return "", err
+	}
+	if _, err = w.Write(bts); err != nil {
+		return "", err
+	}
+	w.Close()
+
+	return b64.EncodeToString(buf.Bytes()), nil
+}
+
+func decodeInternalMap(serializer Serializer, data string) (map[string][]byte, error) {
+	if data == "" {
+		empty := make(map[string][]byte)
+		return empty, nil
+	}
+
+	b, err := b64.DecodeString(data)
+	if err != nil {
+		return nil, err
+	}
+
+	r, err := gzip.NewReader(bytes.NewReader(b))
+	if err != nil {
+		return nil, err
+	}
+	decompressed, err := ioutil.ReadAll(r)
+	if err != nil {
+		return nil, err
+	}
+
+	var im internalMap
+
+	err = serializer.Decode(decompressed, &im)
+	return im.Data, err
+}
+
+const dataKey = "data"
+
 func (k *KV) newConfigMapsObject() (*v1.ConfigMap, error) {
 
 	var lbs labels
@@ -103,7 +169,9 @@ func (k *KV) newConfigMapsObject() (*v1.ConfigMap, error) {
 			Name:   k.bucket,
 			Labels: lbs.toMap(),
 		},
-		Data: map[string]string{},
+		Data: map[string]string{
+			dataKey: "",
+		},
 	}
 
 	cm, err := k.implementer.Create(cfgMap)
@@ -112,6 +180,30 @@ func (k *KV) newConfigMapsObject() (*v1.ConfigMap, error) {
 	}
 
 	return cm, nil
+}
+
+func (k *KV) saveInternalMap(cfgMap *v1.ConfigMap, im map[string][]byte) error {
+	encoded, err := encodeInternalMap(k.serializer, im)
+	if err != nil {
+		return err
+	}
+
+	cfgMap.Data[dataKey] = encoded
+
+	return k.saveMap(cfgMap)
+}
+
+func (k *KV) getInternalMap() (*v1.ConfigMap, map[string][]byte, error) {
+	cfgMap, err := k.getMap()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	im, err := decodeInternalMap(k.serializer, cfgMap.Data[dataKey])
+	if err != nil {
+		return nil, nil, err
+	}
+	return cfgMap, im, nil
 }
 
 func (k *KV) saveMap(cfgMap *v1.ConfigMap) error {
@@ -124,14 +216,14 @@ func (k *KV) Put(key string, value []byte) error {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 
-	m, err := k.getMap()
+	cfgMap, im, err := k.getInternalMap()
 	if err != nil {
 		return err
 	}
 
-	m.Data[key] = string(value)
+	im[key] = value
 
-	return k.saveMap(m)
+	return k.saveInternalMap(cfgMap, im)
 }
 
 // Get retrieves value from the key/value store bucket or returns ErrNotFound error if it was not found.
@@ -139,17 +231,18 @@ func (k *KV) Get(key string) (value []byte, err error) {
 	k.mu.RLock()
 	defer k.mu.RUnlock()
 
-	m, err := k.getMap()
+	_, im, err := k.getInternalMap()
 	if err != nil {
-		return nil, err
+		return
 	}
 
-	val, ok := m.Data[key]
+	val, ok := im[key]
 	if !ok {
 		return []byte(""), ErrNotFound
 	}
 
-	return []byte(val), nil
+	return val, nil
+
 }
 
 // Delete removes entry from the KV store bucket.
@@ -157,14 +250,14 @@ func (k *KV) Delete(key string) error {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 
-	m, err := k.getMap()
+	cfgMap, im, err := k.getInternalMap()
 	if err != nil {
 		return err
 	}
 
-	delete(m.Data, key)
+	delete(im, key)
 
-	return k.saveMap(m)
+	return k.saveInternalMap(cfgMap, im)
 }
 
 // List retrieves all entries that match specific prefix
@@ -172,15 +265,15 @@ func (k *KV) List(prefix string) (data map[string][]byte, err error) {
 	k.mu.RLock()
 	defer k.mu.RUnlock()
 
-	m, err := k.getMap()
+	_, im, err := k.getInternalMap()
 	if err != nil {
 		return
 	}
 
 	data = make(map[string][]byte)
-	for key, val := range m.Data {
+	for key, val := range im {
 		if strings.HasPrefix(key, prefix) {
-			data[key] = []byte(val)
+			data[key] = val
 		}
 	}
 	return

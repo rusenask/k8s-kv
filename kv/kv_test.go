@@ -1,6 +1,7 @@
 package kv
 
 import (
+	"fmt"
 	"testing"
 
 	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -61,17 +62,23 @@ func TestGetMap(t *testing.T) {
 }
 
 func TestGet(t *testing.T) {
+
+	im := map[string][]byte{
+		"foo": []byte("bar"),
+	}
 	fi := &fakeImplementer{
 		getcfgMap: &v1.ConfigMap{
-			Data: map[string]string{
-				"foo": "bar",
-			},
+			Data: map[string]string{},
 		},
 	}
 	kv, err := New(fi, "app", "b1")
 	if err != nil {
 		t.Fatalf("failed to get kv: %s", err)
 	}
+
+	cfgMap, _ := kv.getMap()
+
+	kv.saveInternalMap(cfgMap, im)
 
 	val, err := kv.Get("foo")
 	if err != nil {
@@ -84,14 +91,17 @@ func TestGet(t *testing.T) {
 }
 
 func TestUpdate(t *testing.T) {
+
+	im := map[string][]byte{
+		"a": []byte("a-val"),
+		"b": []byte("b-val"),
+		"c": []byte("c-val"),
+		"d": []byte("d-val"),
+	}
+
 	fi := &fakeImplementer{
 		getcfgMap: &v1.ConfigMap{
-			Data: map[string]string{
-				"a": "a-val",
-				"b": "b-val",
-				"c": "c-val",
-				"d": "d-val",
-			},
+			Data: map[string]string{},
 		},
 	}
 	kv, err := New(fi, "app", "b1")
@@ -99,12 +109,47 @@ func TestUpdate(t *testing.T) {
 		t.Fatalf("failed to get kv: %s", err)
 	}
 
+	cfgMap, _ := kv.getMap()
+
+	kv.saveInternalMap(cfgMap, im)
+
 	err = kv.Put("b", []byte("updated"))
 	if err != nil {
 		t.Fatalf("failed to get key: %s", err)
 	}
 
-	if fi.updatedMap.Data["b"] != "updated" {
+	updatedIm, err := decodeInternalMap(kv.serializer, fi.updatedMap.Data[dataKey])
+	if err != nil {
+		t.Fatalf("failed to decode internal map: %s", err)
+	}
+
+	if string(updatedIm["b"]) != "updated" {
 		t.Errorf("b value was not updated")
 	}
+
+}
+
+func TestEncodeInternal(t *testing.T) {
+	serializer := DefaultSerializer()
+
+	im := make(map[string][]byte)
+
+	for i := 0; i < 100; i++ {
+		im[fmt.Sprintf("foo-%d", i)] = []byte(fmt.Sprintf("some important data here %d", i))
+	}
+
+	encoded, err := encodeInternalMap(serializer, im)
+	if err != nil {
+		t.Fatalf("failed to encode map: %s", err)
+	}
+
+	decoded, err := decodeInternalMap(serializer, encoded)
+	if err != nil {
+		t.Fatalf("failed to decode map: %s", err)
+	}
+
+	if string(decoded["foo-1"]) != "some important data here 1" {
+		t.Errorf("expected to find 'some important data here 1' but got: %s", string(decoded["foo-1"]))
+	}
+
 }

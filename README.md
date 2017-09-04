@@ -1,4 +1,6 @@
-# Kubernetes backed KV [![GoDoc](https://godoc.org/github.com/rusenask/k8s-kv/kv?status.svg)](https://godoc.org/github.com/rusenask/k8s-kv/kv)
+# Kubernetes backed KV 
+
+[![GoDoc](https://godoc.org/github.com/rusenask/k8s-kv/kv?status.svg)](https://godoc.org/github.com/rusenask/k8s-kv/kv)
 
 Use Kubernetes config maps as key/value store! 
 When to use k8s-kv:
@@ -8,7 +10,7 @@ When to use k8s-kv:
 
 When __not to__ use k8s-kv:
 * You have a read/write heavy multi-node application (k8s-kv doesn't have cross-app locking).
-* You want to store bigger values than 1MB. Currently limitation of bucket in k8s-kv is 1MB and it's because of the limit in Etcd. In this case use something else.
+* You want to store bigger values than 1MB. Even though k8s-kv uses compression for the data stored in bucket - it's wise to not try the limits. It's there because of the limit in Etcd. In this case use something else.
 
 
 ## Basics
@@ -16,23 +18,21 @@ When __not to__ use k8s-kv:
 Package API:
 
 ```
+// Pyt key/value pair into the store
 Put(key string, value []byte) error
+// Get value of the specified key
 Get(key string) (value []byte, err error)
+// Delete key/value pair from the store
 Delete(key string) error
+// List all key/value pairs under specified prefix
 List(prefix string) (data map[string][]byte, err error)
+// Delete config map (results in deleted data)
 Teardown() error
 ```
 
 ## Caveats
 
-* Don't be silly, you can't put a lot of stuff there, when creating a new `KV` max size limit is 1MB because it's the limit
-of Etcd value size. Feel free to create as much instances as you want though with different bucket names. 
-* Since k8s-kv is relying on config maps - we have to comply with their rules:
-```
- a valid config key must consist of alphanumeric characters, '-', '_' or '.' (e.g. 'key.name',  or 'KEY_NAME',  or 'key-name', regex used for validation is '[-._a-zA-Z0-9]+')
- ```
-
-
+* Don't be silly, you can't put a lot of stuff here.
 
 ## Example
 
@@ -57,6 +57,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 )
 
+// get ConfigMapInterface to access config maps in "default" namespace
 func getImplementer() (implementer core_v1.ConfigMapInterface) {
 	cfg, err := clientcmd.BuildConfigFromFlags("", ".kubeconfig") // in your app you could replace it with in-cluster-config
 	if err != nil {
@@ -74,13 +75,18 @@ func getImplementer() (implementer core_v1.ConfigMapInterface) {
 func main() {
 	impl := getImplementer()
 
+	// getting acces to k8s-kv. "my-app" will become a label
+	// for this config map, this way it's easier to manage configs 
+	// "bucket1" will be config map's name and represent one entry in config maps list	
 	kvdb, err := kv.New(impl, "my-app", "bucket1")
 	if err != nil {
 		panic(err)
 	}
 
+	// insert a key "foo" with value "hello kubernetes world"
 	kvdb.Put("foo", []byte("hello kubernetes world"))
 
+	// get value of key "foo"
 	stored, _ := kvdb.Get("foo")
 
 	fmt.Println(string(stored))

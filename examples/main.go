@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 
 	"github.com/rusenask/k8s-kv/kv"
 
@@ -11,7 +13,8 @@ import (
 )
 
 func getImplementer() (implementer core_v1.ConfigMapInterface) {
-	cfg, err := clientcmd.BuildConfigFromFlags("", ".kubeconfig") // in your app you could replace it with in-cluster-config
+
+	cfg, err := clientcmd.BuildConfigFromFlags("", filepath.Join(os.Getenv("HOME"), ".kube", "config")) // in your app you could replace it with in-cluster-config
 	if err != nil {
 		panic(err)
 	}
@@ -21,7 +24,7 @@ func getImplementer() (implementer core_v1.ConfigMapInterface) {
 		panic(err)
 	}
 
-	return client.ConfigMaps("default")
+	return client.CoreV1().ConfigMaps("default")
 }
 
 func main() {
